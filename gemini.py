@@ -2,11 +2,14 @@
 # How to Run:
 # 1) Create a Virtual Ennironment 
 # 2) Install requirements: pip install -r requirements.txt
-# 3) Add your API keys to .env file
+# 3) Add your API keys to config.toml file
 # 4) Run the app: streamlit run gemini.py
 
-import os
-from dotenv import load_dotenv
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
+
 import streamlit as st   # Using Streamlit for interface
 from google import genai
 from google.genai import types
@@ -16,21 +19,24 @@ from concurrent.futures import ThreadPoolExecutor
 import boto3
 from io import BytesIO
 from datetime import datetime
+from pathlib import Path
 from prompts import PRECISION_PROMPT, PERSONAL_DETAILS_PROMPT  # Importing your prompts
 
-# Load environment variables from .env file
-load_dotenv()
+# Load configuration from TOML file
+config_path = Path(__file__).parent / "config.toml"
+with open(config_path, "rb") as f:
+    config = tomllib.load(f)
 
 # --- CONFIGURATION ---
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_API_KEY = config["gemini"]["GEMINI_API_KEY"]
 MODEL_ID = "gemini-3-pro-preview"  # <----------- Model for checkbox extraction
 MODEL_FLASH_ID = "gemini-2.5-flash"  # <----------- Model for personal details
 
 # --- S3 CONFIGURATION ---
-AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
-AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
-S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME")
-S3_REGION = os.getenv("S3_REGION", "us-east-1")
+AWS_ACCESS_KEY = config["s3"]["AWS_ACCESS_KEY"]
+AWS_SECRET_KEY = config["s3"]["AWS_SECRET_KEY"]
+S3_BUCKET_NAME = config["s3"]["S3_BUCKET_NAME"]
+S3_REGION = config["s3"].get("S3_REGION", "us-east-1")
 
 st.set_page_config(page_title="Medical OCR", layout="wide")
 st.title("Medical Checkbox Extractor")
