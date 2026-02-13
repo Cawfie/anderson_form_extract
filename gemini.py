@@ -23,9 +23,7 @@ from pathlib import Path
 from prompts import PRECISION_PROMPT, PERSONAL_DETAILS_PROMPT  # Importing your prompts
 
 # Load configuration from TOML file
-config_path = Path(__file__).parent / "config.toml"
-with open(config_path, "rb") as f:
-    config = tomllib.load(f)
+config = st.secrets
 
 # --- CONFIGURATION ---
 GEMINI_API_KEY = config["gemini"]["GEMINI_API_KEY"]
