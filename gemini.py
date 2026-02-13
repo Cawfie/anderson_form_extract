@@ -138,174 +138,107 @@ def download_json_from_s3(s3_key):
         st.error(f"Error downloading JSON from S3: {e}")
         return None
 
-# Initialize mode state
-if 'selected_mode' not in st.session_state:
-    st.session_state.selected_mode = "Extract"
-
-# MODE SELECTOR 
-mode = st.radio(
-    "Choose Mode:",
-    ["Extract", "View"],
-    horizontal=True,
-    key="mode_selector"
-)
-st.session_state.selected_mode = mode
-
 st.divider()
 
-# EXTRACT MODE
+# Main layout: left = image + extract, right = JSON viewer
+left_col, right_col = st.columns([1, 1])
 
-if st.session_state.selected_mode == "Extract":
-    left_col, right_col = st.columns([1, 1])
-    
-    with left_col:
-        st.subheader("📸 Select Image")
-        s3_images = list_s3_images()
-        if s3_images:
-            selected_image = st.selectbox("Select image from S3:", s3_images, key="extract_image_select")
-            img = download_image_from_s3(selected_image)
-            filename = selected_image.split('/')[-1]
-            if img:
-                st.image(img, caption="Original Document", use_container_width=True)
-            else:
-                img = None
-                filename = None
+with left_col:
+    st.subheader("📸 Select Image")
+    s3_images = list_s3_images()
+    if s3_images:
+        selected_image = st.selectbox("Select image from S3:", s3_images, key="extract_image_select")
+        img = download_image_from_s3(selected_image)
+        filename = selected_image.split('/')[-1]
+        if img:
+            st.image(img, caption="Original Document", use_container_width=True)
         else:
-            st.warning("No images found in S3 bucket")
             img = None
             filename = None
-    
-    with right_col:
-        st.subheader("⚙️ Extraction Process")
-        
-        # Show button only when not extracting
-        if not st.session_state.extraction_in_progress:
-            extract_disabled = img is None
-            extract_button = st.button(
-                "🔄 Extract Data",
-                disabled=extract_disabled,
-                key="extract_btn",
-                use_container_width=True,
-                help="Process the selected image" if not extract_disabled else "Select an image first"
-            )
-            
-            if extract_button:
-                st.session_state.extraction_in_progress = True
-                st.rerun()
-        
-        # Show extraction process
-        if st.session_state.extraction_in_progress:
-            progress_container = st.container()
-            
-            with progress_container:
-                col1, col2, col3 = st.columns([1, 1, 1])
-                
-                with col1:
-                    with st.spinner("⏳ Extracting Checkbox Data..."):
-                        try:
-                            def extract_checkbox_data():
-                                response = client.models.generate_content(
-                                    model=MODEL_ID,
-                                    contents=[PRECISION_PROMPT, img],
-                                    config=types.GenerateContentConfig(
-                                        response_mime_type="application/json"
-                                    )
-                                )
-                                return json.loads(response.text)
-                            
-                            checkbox_data = extract_checkbox_data()
-                            st.success("✓ Checkbox Data Extracted")
-                        except Exception as e:
-                            st.error(f"Error extracting checkbox data: {e}")
-                            st.session_state.extraction_in_progress = False
-                            st.stop()
-                
-                with col2:
-                    with st.spinner("⏳ Extracting Personal Details..."):
-                        try:
-                            def extract_personal_data():
-                                response = client.models.generate_content(
-                                    model=MODEL_FLASH_ID,
-                                    contents=[PERSONAL_DETAILS_PROMPT, img],
-                                    config=types.GenerateContentConfig(
-                                        response_mime_type="application/json"
-                                    )
-                                )
-                                return json.loads(response.text)
-                            
-                            personal_data = extract_personal_data()
-                            st.success("✓ Personal Details Extracted")
-                        except Exception as e:
-                            st.error(f"Error extracting personal details: {e}")
-                            st.session_state.extraction_in_progress = False
-                            st.stop()
-                
-                with col3:
-                    with st.spinner("⏳ Uploading to S3..."):
-                        try:
-                            # Merge results
-                            merged_data = {
-                                "personal_details": personal_data,
-                                "medical_prescriptions": checkbox_data
-                            }
-                            
-                            # Upload to S3
-                            s3_key, timestamp = upload_json_to_s3(merged_data, filename)
-                            if s3_key:
-                                st.success("✓ Uploaded to S3")
-                            else:
-                                st.warning("⚠ Upload failed")
-                        except Exception as e:
-                            st.error(f"Error uploading to S3: {e}")
-                            st.session_state.extraction_in_progress = False
-                            st.stop()
-            
-            # Display results
+    else:
+        st.warning("No images found in S3 bucket")
+        img = None
+        filename = None
+
+    # Extraction button
+    extract_disabled = img is None or st.session_state.extraction_in_progress
+    if st.button("🔄 Extract Data", disabled=extract_disabled, key="extract_btn", use_container_width=True):
+        st.session_state.extraction_in_progress = True
+        try:
+            with st.spinner("⏳ Extracting Checkbox Data..."):
+                def extract_checkbox_data():
+                    response = client.models.generate_content(
+                        model=MODEL_ID,
+                        contents=[PRECISION_PROMPT, img],
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json"
+                        )
+                    )
+                    return json.loads(response.text)
+
+                checkbox_data = extract_checkbox_data()
+                st.success("✓ Checkbox Data Extracted")
+
+            with st.spinner("⏳ Extracting Personal Details..."):
+                def extract_personal_data():
+                    response = client.models.generate_content(
+                        model=MODEL_FLASH_ID,
+                        contents=[PERSONAL_DETAILS_PROMPT, img],
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json"
+                        )
+                    )
+                    return json.loads(response.text)
+
+                personal_data = extract_personal_data()
+                st.success("✓ Personal Details Extracted")
+
+            with st.spinner("⏳ Uploading to S3..."):
+                merged_data = {
+                    "personal_details": personal_data,
+                    "medical_prescriptions": checkbox_data
+                }
+                s3_key, timestamp = upload_json_to_s3(merged_data, filename)
+                if s3_key:
+                    st.success("✓ Uploaded to S3")
+                else:
+                    st.warning("⚠ Upload failed")
+
+            # Save result to session so right column can display it
+            st.session_state.extraction_result = merged_data
+            st.session_state.extraction_s3_key = s3_key
+            st.session_state.extraction_timestamp = timestamp
+
+        except Exception as e:
+            st.error(f"Extraction error: {e}")
+        finally:
+            st.session_state.extraction_in_progress = False
+
+        # Show latest extraction result below the extract button (left pane)
+        if st.session_state.get('extraction_result'):
             st.divider()
-            st.success("✅ Extraction Complete!")
             st.subheader("📊 Extracted Data")
-            st.json(merged_data)
-            
-            # Display upload information
-            if s3_key:
+            st.json(st.session_state['extraction_result'])
+            if st.session_state.get('extraction_s3_key'):
                 col_a, col_b = st.columns(2)
                 with col_a:
-                    st.info(f"📁 S3 Path: `{s3_key}`")
+                    st.info(f"📁 S3 Path: `{st.session_state.get('extraction_s3_key')}`")
                 with col_b:
-                    st.info(f"🕐 Timestamp: {timestamp}")
-            
-            # Reset extraction state
-            st.session_state.extraction_in_progress = False
-            st.session_state.extraction_result = merged_data
+                    st.info(f"🕐 Timestamp: {st.session_state.get('extraction_timestamp')}")
 
-
-# VIEW MODE
-
-elif st.session_state.selected_mode == "View":
-    left_col, right_col = st.columns([1, 2])
-    
-    with left_col:
-        st.subheader("📂 JSON Files")
-        json_files = list_s3_json_files()
-        
-        if json_files:
-            selected_json = st.selectbox(
-                "Select a file:",
-                json_files,
-                format_func=lambda x: x.replace('json/', '').replace('.json', ''),
-                key="view_json_select"
-            )
-        else:
-            st.info("No JSON files found in S3.")
-            selected_json = None
-    
-    with right_col:
-        st.subheader("📋 JSON Content")
-        
-        if selected_json:
-            json_data = download_json_from_s3(selected_json)
-            if json_data:
-                st.success(f"✓ Loaded: {selected_json.replace('json/', '')}")
-                st.json(json_data)
-        else:
-            st.info("Select a JSON file from the left to view its contents.")
+with right_col:
+    st.subheader("📂 Saved JSON Files (S3)")
+    json_files = list_s3_json_files()
+    if json_files:
+        selected_json = st.selectbox(
+            "Select a file:",
+            json_files,
+            format_func=lambda x: x.replace('json/', '').replace('.json', ''),
+            key="view_json_select"
+        )
+        json_data = download_json_from_s3(selected_json)
+        if json_data:
+            st.success(f"✓ Loaded: {selected_json.replace('json/', '')}")
+            st.json(json_data)
+    else:
+        st.info("No JSON files found in S3.")
